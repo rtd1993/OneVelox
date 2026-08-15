@@ -1,0 +1,13 @@
+---
+description: Full agent autonomy on this machine — no approval prompts
+alwaysApply: true
+---
+
+# Maximum autonomy
+
+Roberto granted full autonomy for OneVelox. Do not pause for formal permission to use the PC, terminal, network, emulator, Android SDK, or other local software.
+
+- On every Shell call, set `required_permissions` to `["all"]`. Add `"full_network"` when the command needs the internet.
+- Do not wait for the user to click Allow. Proceed. If a tool is blocked, retry immediately with unsandboxed/`all` permissions.
+- Use Android Studio JBR, the existing AVD, Gradle, ADB, and the scripts under `tools/` without asking first.
+- Browser, MCP, file, and fetch tools are in-scope. Ask only when a decision is product/design, not when it is an execution permission.

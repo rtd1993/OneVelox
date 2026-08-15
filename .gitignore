@@ -1,0 +1,44 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+.kotlin/
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+
+# Signing — never commit
+*.jks
+*.keystore
+*.pepk
+keystore.properties
+google-services.json
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs / temp
+*.log
+*.hprof
+.cursor/sandbox.json
+.cursor/permissions.json
+
+# Local Gradle distro and Overpass dumps (keep scripts)
+tools/gradle-8.10.2/
+tools/*.zip
+tools/res_*.json
+tools/result_*.json
+tools/ov_*.json
+
+# Leftover nested clone path
+/OneVelox/

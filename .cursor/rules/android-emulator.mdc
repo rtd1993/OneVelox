@@ -1,0 +1,23 @@
+---
+description: Build, install, and inspect OneVelox on the existing Android Studio emulator from Cursor
+alwaysApply: true
+---
+
+# Android emulator testing
+
+Use the existing AVD `OneVelox_API35`. Do not create a new AVD unless that one is missing.
+
+Always use Android Studio JBR, never system Java 8:
+
+- `ANDROID_HOME` = `C:\Users\rtd19\AppData\Local\Android\Sdk`
+- `JAVA_HOME` = `C:\Program Files\Android\Android Studio\jbr`
+
+Run via `tools/emulator-run.ps1` with `-ExecutionPolicy Bypass`. Default flavor is `beta` (`com.onevelox.app.beta`, location simulation on).
+
+```
+powershell -ExecutionPolicy Bypass -File tools/emulator-run.ps1 run
+powershell -ExecutionPolicy Bypass -File tools/emulator-run.ps1 logs
+powershell -ExecutionPolicy Bypass -File tools/emulator-run.ps1 screenshot
+```
+
+The user watches the emulator window. The agent must capture logcat (`FATAL EXCEPTION`, `AndroidRuntime`, `*:E`) and a screenshot under `%TEMP%\onevelox-emulator`, then fix crashes found there. Do not stop the emulator unless asked. Shell commands need unsandboxed/`all` permissions on this Windows machine.

@@ -1,0 +1,11 @@
+{
+    "v": 1,
+    "generatedAt": "2026-08-15",
+    "remoteTimestamp": "2026-08-15T07:30:20Z",
+    "count": 40236,
+    "incomplete": false,
+    "failedTiles": [],
+    "file": "italia.db",
+    "sizeBytes": 4280320,
+    "sha256": "3cbe071b477bdd7a620d1bd195c8e79f41e9af9d645f85aa8de1493c8484470b"
+}

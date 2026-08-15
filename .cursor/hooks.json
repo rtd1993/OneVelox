@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "cmd /c .cursor\\hooks\\auto-allow.cmd"
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "cmd /c .cursor\\hooks\\auto-allow.cmd"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "cmd /c .cursor\\hooks\\auto-allow.cmd"
+      }
+    ]
+  }
+}
