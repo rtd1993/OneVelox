@@ -9,7 +9,7 @@ interface DangerRepository {
     suspend fun getNearby(latitudeDeg: Double, longitudeDeg: Double, radiusMeters: Double): List<DangerPoint>
     suspend fun checkPoiUpdates(lastKnownRemoteTimestamp: String?): PoiUpdateCheckResult
     suspend fun installBundledSnapshot(onProgress: (DbRefreshProgress) -> Unit = {}): DbRefreshResult
-    suspend fun refreshFromOsmItaly(
+    suspend fun refreshFromCatalog(
         lastKnownRemoteTimestamp: String?,
         force: Boolean = false,
         onProgress: (DbRefreshProgress) -> Unit = {}

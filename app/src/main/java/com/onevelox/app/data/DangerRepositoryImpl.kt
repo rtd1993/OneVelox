@@ -3,7 +3,6 @@ package com.onevelox.app.data
 import com.onevelox.app.data.local.DangerDao
 import com.onevelox.app.data.local.OneVeloxDatabase
 import com.onevelox.app.data.local.toDomain
-import com.onevelox.app.data.local.toEntity
 import com.onevelox.app.model.DangerPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -12,7 +11,7 @@ import kotlin.math.cos
 
 class DangerRepositoryImpl(
     private val roomDb: OneVeloxDatabase,
-    private val osmSource: OsmOverpassDataSource = OsmOverpassDataSource(),
+    private val catalog: ItaliaCatalogRemote = ItaliaCatalogRemote(),
     private val bundledDb: BundledItaliaDb? = null
 ) : DangerRepository {
 
@@ -38,7 +37,7 @@ class DangerRepositoryImpl(
                 ?: return DbRefreshResult(
                     success = false,
                     loadedPoiCount = dao.count(),
-                    source = "APK SQLite",
+                    source = SOURCE_APK,
                     message = "italia.db non configurato",
                     errorType = "MISSING_SNAPSHOT"
                 )
@@ -46,7 +45,7 @@ class DangerRepositoryImpl(
                 return DbRefreshResult(
                     success = false,
                     loadedPoiCount = dao.count(),
-                    source = "APK SQLite",
+                    source = SOURCE_APK,
                     message = "italia.db non presente nell'APK",
                     errorType = "MISSING_SNAPSHOT"
                 )
@@ -62,7 +61,7 @@ class DangerRepositoryImpl(
             DbRefreshResult(
                 success = true,
                 loadedPoiCount = finalCount,
-                source = "APK SQLite ${meta.generatedAt}",
+                source = "$SOURCE_APK ${meta.generatedAt}",
                 message = "POI precaricati: $finalCount (aggiornamento ${meta.generatedAt})",
                 remoteTimestamp = meta.remoteTimestamp,
                 updatedRows = finalCount,
@@ -72,7 +71,7 @@ class DangerRepositoryImpl(
             DbRefreshResult(
                 success = false,
                 loadedPoiCount = dao.count(),
-                source = "APK SQLite",
+                source = SOURCE_APK,
                 message = t.message ?: "Import SQLite fallito",
                 errorType = t::class.java.simpleName
             )
@@ -80,119 +79,99 @@ class DangerRepositoryImpl(
     }
 
     override suspend fun checkPoiUpdates(lastKnownRemoteTimestamp: String?): PoiUpdateCheckResult {
-        val remoteTimestamp = osmSource.fetchDatasetTimestamp()
-        if (remoteTimestamp.isNullOrBlank()) {
-            return PoiUpdateCheckResult(
+        return try {
+            val remote = catalog.fetchMeta()
+            val remoteTs = remote.effectiveTimestamp()
+            val updateAvailable = ItaliaCatalogRemote.isRemoteNewer(remoteTs, lastKnownRemoteTimestamp)
+            PoiUpdateCheckResult(
+                updateAvailable = updateAvailable,
+                remoteTimestamp = remoteTs,
+                message = if (updateAvailable) "Nuovo italia.db disponibile sul catalogo" else "DB POI gia aggiornato"
+            )
+        } catch (t: Throwable) {
+            PoiUpdateCheckResult(
                 updateAvailable = false,
                 remoteTimestamp = null,
-                message = "Impossibile verificare aggiornamenti OSM ora"
+                message = t.message ?: "Impossibile verificare il catalogo GitHub"
             )
         }
-        val updateAvailable = lastKnownRemoteTimestamp.isNullOrBlank() || remoteTimestamp != lastKnownRemoteTimestamp
-        return PoiUpdateCheckResult(
-            updateAvailable = updateAvailable,
-            remoteTimestamp = remoteTimestamp,
-            message = if (updateAvailable) "Aggiornamento POI disponibile" else "DB POI gia aggiornato"
-        )
     }
 
-    override suspend fun refreshFromOsmItaly(
+    override suspend fun refreshFromCatalog(
         lastKnownRemoteTimestamp: String?,
         force: Boolean,
         onProgress: (DbRefreshProgress) -> Unit
     ): DbRefreshResult {
         return try {
             val localCount = dao.count()
-            val updateCheck = checkPoiUpdates(lastKnownRemoteTimestamp)
-            if (!force && !updateCheck.updateAvailable && localCount >= 20) {
+            onProgress(DbRefreshProgress(1, 5, "Verifica catalogo GitHub"))
+            val remote = catalog.fetchMeta()
+            val remoteTs = remote.effectiveTimestamp()
+            val newer = ItaliaCatalogRemote.isRemoteNewer(remoteTs, lastKnownRemoteTimestamp)
+            if (!force && !newer && localCount >= 20) {
                 return DbRefreshResult(
                     success = true,
                     loadedPoiCount = localCount,
-                    source = "OpenStreetMap Overpass",
-                    message = "Nessuna variazione remota: uso cache locale",
-                    remoteTimestamp = updateCheck.remoteTimestamp,
+                    source = SOURCE_GITHUB,
+                    message = "Nessun aggiornamento: italia.db locale e allineato",
+                    remoteTimestamp = lastKnownRemoteTimestamp ?: remoteTs,
                     updateAvailable = false
                 )
             }
 
-            onProgress(DbRefreshProgress(1, 7, "Verifica variazioni completata"))
-            onProgress(DbRefreshProgress(2, 7, "Download POI in corso (dataset nazionale > 10K)"))
-
-            val fetched = osmSource.fetchItalyPoi { progress ->
-                val mappedStep = (2 + (progress.step * 4 / progress.totalSteps.coerceAtLeast(1))).coerceIn(2, 6)
-                onProgress(
-                    DbRefreshProgress(
-                        step = mappedStep,
-                        totalSteps = 7,
-                        message = progress.message
-                    )
-                )
-            }
-            val unique = fetched.points.distinctBy { it.id }
-            if (unique.isEmpty()) {
-                DbRefreshResult(
+            onProgress(DbRefreshProgress(2, 5, "Download italia.db dal catalogo"))
+            val installer = bundledDb
+                ?: return DbRefreshResult(
                     success = false,
-                    loadedPoiCount = dao.count(),
-                    source = "OpenStreetMap Overpass",
-                    message = "Nessun POI ricevuto da OSM Overpass",
-                    errorType = "EMPTY_DATASET",
-                    remoteTimestamp = fetched.remoteTimestamp,
-                    updateAvailable = true
+                    loadedPoiCount = localCount,
+                    source = SOURCE_GITHUB,
+                    message = "Importer SQLite non configurato",
+                    errorType = "MISSING_SNAPSHOT"
                 )
-            } else {
-                onProgress(DbRefreshProgress(6, 7, "Calcolo differenze locali/remoto"))
-                val localMap = dao.getAll().associateBy { it.id }
-                val remoteEntities = unique.map { it.toEntity() }
-
-                val changedOrNew = remoteEntities.filter { remote ->
-                    val local = localMap[remote.id]
-                    local == null || local != remote
-                }
-                val remoteIds = remoteEntities.asSequence().map { it.id }.toSet()
-                val removedIds = if (fetched.incomplete) {
-                    emptyList()
+            val cacheDest = installer.cacheFile("italia-catalog.db")
+            val downloaded = catalog.downloadDb(cacheDest, remote) { downloadedBytes, totalBytes ->
+                val mbDown = downloadedBytes / (1024.0 * 1024.0)
+                val mbTotal = if (totalBytes > 0L) totalBytes / (1024.0 * 1024.0) else 0.0
+                val label = if (mbTotal > 0.0) {
+                    "Download italia.db ${"%.1f".format(mbDown)}/${"%.1f".format(mbTotal)} MB"
                 } else {
-                    localMap.keys.filter { it !in remoteIds }
+                    "Download italia.db ${"%.1f".format(mbDown)} MB"
                 }
-
-                if (changedOrNew.isNotEmpty()) {
-                    changedOrNew.chunked(400).forEach { dao.upsertAll(it) }
-                }
-                if (removedIds.isNotEmpty()) {
-                    removedIds.chunked(400).forEach { dao.deleteByIds(it) }
-                }
-
-                onProgress(DbRefreshProgress(7, 7, "DB locale aggiornato"))
-
-                val finalCount = dao.count()
-                val incompleteNote = if (fetched.incomplete) " (sync parziale, nessun POI rimosso)" else ""
-                DbRefreshResult(
-                    success = true,
-                    loadedPoiCount = finalCount,
-                    source = "OpenStreetMap Overpass",
-                    message = "POI sincronizzati: ${finalCount} totali (+${changedOrNew.size} aggiornati, -${removedIds.size} rimossi)$incompleteNote",
-                    remoteTimestamp = fetched.remoteTimestamp ?: updateCheck.remoteTimestamp,
-                    updatedRows = changedOrNew.size,
-                    removedRows = removedIds.size,
-                    updateAvailable = fetched.incomplete
-                )
+                onProgress(DbRefreshProgress(3, 5, label))
             }
+
+            onProgress(DbRefreshProgress(4, 5, "Importazione POI da catalogo"))
+            withContext(Dispatchers.IO) {
+                try {
+                    installer.installFromFile(roomDb.openHelper.writableDatabase, downloaded)
+                    roomDb.invalidationTracker.refreshVersionsAsync()
+                } finally {
+                    downloaded.delete()
+                }
+            }
+            val finalCount = dao.count()
+            onProgress(DbRefreshProgress(5, 5, "Database POI aggiornato"))
+            DbRefreshResult(
+                success = true,
+                loadedPoiCount = finalCount,
+                source = "$SOURCE_GITHUB ${remoteTs}",
+                message = "POI aggiornati dal catalogo: $finalCount (data $remoteTs)",
+                remoteTimestamp = remoteTs,
+                updatedRows = finalCount,
+                updateAvailable = remote.incomplete
+            )
         } catch (t: Throwable) {
             val currentCount = dao.count()
-            val normalized = when (t) {
-                is IllegalStateException -> "Servizio OpenStreetMap momentaneamente non disponibile o risposta non valida"
-                else -> t.message ?: "Errore sconosciuto durante refresh OSM"
-            }
-            val errorCode = when (t) {
-                is IllegalStateException -> "OVERPASS_RESPONSE"
-                else -> t::class.java.simpleName
-            }
             DbRefreshResult(
                 success = false,
                 loadedPoiCount = currentCount,
-                source = "OpenStreetMap Overpass",
-                message = if (currentCount > 0) "$normalized (dati locali mantenuti)" else normalized,
-                errorType = errorCode,
+                source = SOURCE_GITHUB,
+                message = if (currentCount > 0) {
+                    "${t.message ?: "Aggiornamento catalogo fallito"} (dati locali mantenuti)"
+                } else {
+                    t.message ?: "Aggiornamento catalogo fallito"
+                },
+                errorType = t::class.java.simpleName,
                 updateAvailable = currentCount < 20
             )
         }
@@ -219,5 +198,7 @@ class DangerRepositoryImpl(
 
     companion object {
         private const val METERS_PER_DEG_LAT = 111_320.0
+        private const val SOURCE_APK = "APK SQLite"
+        private const val SOURCE_GITHUB = "GitHub DBs"
     }
 }

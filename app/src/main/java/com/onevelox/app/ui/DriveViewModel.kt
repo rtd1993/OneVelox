@@ -11,7 +11,7 @@ import com.onevelox.app.data.DbRefreshResult
 import com.onevelox.app.data.DbRefreshProgress
 import com.onevelox.app.data.BundledItaliaDb
 import com.onevelox.app.data.DangerRepositoryImpl
-import com.onevelox.app.data.OsmOverpassDataSource
+import com.onevelox.app.data.ItaliaCatalogRemote
 import com.onevelox.app.data.SettingsRepository
 import com.onevelox.app.data.local.OneVeloxDatabase
 import com.onevelox.app.domain.DangerDetectionEngine
@@ -47,7 +47,7 @@ class DriveViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = DangerRepositoryImpl(
         db,
-        OsmOverpassDataSource(),
+        ItaliaCatalogRemote(),
         BundledItaliaDb(application)
     )
     private val settingsRepository = SettingsRepository(application)
@@ -201,11 +201,11 @@ class DriveViewModel(application: Application) : AndroidViewModel(application) {
             dbSyncRuntime.value = DbSyncRuntime(
                 inProgress = true,
                 progress = 0f,
-                status = "Aggiornamento DB da OpenStreetMap in corso...",
+                status = "Verifica aggiornamenti catalogo...",
                 errorType = null,
                 updateAvailable = false
             )
-            val result = repository.refreshFromOsmItaly(
+            val result = repository.refreshFromCatalog(
                 lastKnownRemoteTimestamp = lastKnownTimestamp,
                 force = false,
                 onProgress = { progress ->
@@ -262,7 +262,7 @@ class DriveViewModel(application: Application) : AndroidViewModel(application) {
     private fun DbRefreshResult.toRuntimeMessage(): DbSyncRuntime {
         val prefix = if (success) "OK" else "ERRORE"
         val base = "$prefix • $source • POI: $loadedPoiCount • $message"
-        val showType = !errorType.isNullOrBlank() && errorType != "OVERPASS_RESPONSE"
+        val showType = !errorType.isNullOrBlank() && errorType != "CATALOG_UNAVAILABLE"
         val full = if (showType) "$base • tipo: $errorType" else base
         return DbSyncRuntime(
             inProgress = false,

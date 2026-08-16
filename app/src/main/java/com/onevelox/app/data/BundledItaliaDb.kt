@@ -24,6 +24,8 @@ class BundledItaliaDb(private val context: Context) {
         context.assets.open(ASSET_DB).use { true }
     }.getOrDefault(false)
 
+    fun cacheFile(name: String): File = File(context.cacheDir, name)
+
     fun installInto(db: SupportSQLiteDatabase): Meta {
         if (!exists()) {
             throw IllegalStateException("italia.db non presente nell'APK")
@@ -33,35 +35,43 @@ class BundledItaliaDb(private val context: Context) {
             context.assets.open(ASSET_DB).use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
             }
-            val path = dest.absolutePath.replace("'", "''")
-            db.execSQL("ATTACH DATABASE '$path' AS bundled")
-            try {
-                db.beginTransaction()
-                try {
-                    db.execSQL(
-                        """
-                        INSERT OR REPLACE INTO danger_points (
-                          id, name, type, allowedSpeedKmh, distanceMeters, headingDeg, side,
-                          branchRoadName, latitudeDeg, longitudeDeg, segmentEndLatitudeDeg,
-                          segmentEndLongitudeDeg, segmentLengthMeters, restrictionSchedule, sourceDataset
-                        )
-                        SELECT
-                          id, name, type, allowedSpeedKmh, distanceMeters, headingDeg, side,
-                          branchRoadName, latitudeDeg, longitudeDeg, segmentEndLatitudeDeg,
-                          segmentEndLongitudeDeg, segmentLengthMeters, restrictionSchedule, sourceDataset
-                        FROM bundled.danger_points
-                        """.trimIndent()
-                    )
-                    db.setTransactionSuccessful()
-                } finally {
-                    db.endTransaction()
-                }
-                return readMeta(db)
-            } finally {
-                runCatching { db.execSQL("DETACH DATABASE bundled") }
-            }
+            return installFromFile(db, dest)
         } finally {
             dest.delete()
+        }
+    }
+
+    fun installFromFile(db: SupportSQLiteDatabase, source: File): Meta {
+        if (!source.exists() || source.length() < 100L) {
+            throw IllegalStateException("File SQLite non valido")
+        }
+        val path = source.absolutePath.replace("'", "''")
+        db.execSQL("ATTACH DATABASE '$path' AS bundled")
+        try {
+            db.beginTransaction()
+            try {
+                db.execSQL("DELETE FROM danger_points")
+                db.execSQL(
+                    """
+                    INSERT INTO danger_points (
+                      id, name, type, allowedSpeedKmh, distanceMeters, headingDeg, side,
+                      branchRoadName, latitudeDeg, longitudeDeg, segmentEndLatitudeDeg,
+                      segmentEndLongitudeDeg, segmentLengthMeters, restrictionSchedule, sourceDataset
+                    )
+                    SELECT
+                      id, name, type, allowedSpeedKmh, distanceMeters, headingDeg, side,
+                      branchRoadName, latitudeDeg, longitudeDeg, segmentEndLatitudeDeg,
+                      segmentEndLongitudeDeg, segmentLengthMeters, restrictionSchedule, sourceDataset
+                    FROM bundled.danger_points
+                    """.trimIndent()
+                )
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            return readMeta(db)
+        } finally {
+            runCatching { db.execSQL("DETACH DATABASE bundled") }
         }
     }
 
